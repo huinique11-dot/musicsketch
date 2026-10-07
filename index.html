@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오선 칠판</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Music&family=Noto+Sans+KR:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1b2232;
+    --card: #263046;
+    --paper: #fffdf6;
+    --text: #f3f5f9;
+    --muted: #9ba6bf;
+    --btn: #34405a;
+    --btn-hover: #404e6d;
+    --accent: #ff6b3d;
+    --on: #ffb703;
+    --danger: #e5484d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: 'Noto Sans KR', system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1920px; height: 1080px;
+    transform-origin: 50% 50%;
+    padding: 22px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+
+  /* ---------- 상단 ---------- */
+  header {
+    height: 84px; flex: none;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .title { font-size: 38px; font-weight: 900; letter-spacing: -0.5px; white-space: nowrap; }
+  .title small { display: block; font-size: 17px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .spacer { flex: 1; }
+  .group { display: flex; gap: 8px; align-items: center; }
+  .btn {
+    border: 0; border-radius: 14px; padding: 12px 18px; min-height: 62px;
+    font: 700 23px 'Noto Sans KR', sans-serif; color: var(--text);
+    background: var(--btn); cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--btn-hover); }
+  .btn.on { background: var(--on); color: #222; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .btn.reset { background: var(--danger); color: #fff; padding: 12px 34px; font-size: 26px; }
+  .seg { display: flex; background: var(--card); border-radius: 14px; padding: 4px; gap: 4px; }
+  .seg .btn { min-height: 54px; padding: 8px 14px; background: transparent; color: var(--muted); }
+  .seg .btn.on { background: var(--on); color: #222; }
+  .seg .btn.on.sharp, .seg .btn.on.flat { background: #8ecae6; color: #102030; }
+  .seglabel { font-size: 16px; color: var(--muted); padding: 0 4px 0 8px; align-self: center; white-space: nowrap; }
+
+  /* ---------- 오선 ---------- */
+  #staffCard {
+    height: 540px; flex: none;
+    background: var(--paper); border-radius: 22px;
+    overflow-x: auto; overflow-y: hidden;
+    position: relative;
+    scrollbar-width: thin;
+  }
+  #staffSvg { display: block; height: 540px; cursor: crosshair; }
+  #emptyHint {
+    position: absolute; right: 40px; top: 18px;
+    color: #9a9a9a; font-size: 24px; font-weight: 500; pointer-events: none;
+  }
+
+  /* ---------- 건반 · 지판 ---------- */
+  #inputs { flex: 1; min-height: 0; display: flex; gap: 16px; }
+  .inputCard {
+    background: var(--card); border-radius: 22px;
+    padding: 14px 18px 12px;
+    display: flex; flex-direction: column; min-width: 0;
+  }
+  #pianoCard { width: 640px; flex: none; }
+  #guitarCard { flex: 1; }
+  .inputCard svg { display: block; width: 100%; flex: 1; min-height: 0; }
+  .key { cursor: pointer; }
+  .key.white rect { fill: #fff; stroke: #333; stroke-width: 1.5; }
+  .key.black rect { fill: #1d1d22; stroke: #000; stroke-width: 1; }
+  .key.white.lit rect { fill: #ffd6c7; }
+  .key.black.lit rect { fill: var(--accent); }
+  .key.white.press rect { fill: #ffb199; }
+  .key.black.press rect { fill: #ff8f6b; }
+  .cell { fill: transparent; cursor: pointer; }
+  .cell:hover { fill: rgba(255,255,255,.08); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <header>
+    <div class="title">오선 칠판<small>오선·건반·기타 지판을 누르면 악보에 쌓여요 · 리셋 전까지 누적</small></div>
+    <div class="spacer"></div>
+    <div class="seg" id="staffAccSeg" title="오선을 직접 누를 때 붙일 임시표">
+      <span class="seglabel">오선 입력</span>
+      <button class="btn on" data-acc="">♮ 그대로</button>
+      <button class="btn sharp" data-acc="#">♯</button>
+      <button class="btn flat" data-acc="b">♭</button>
+    </div>
+    <div class="group">
+      <button class="btn" id="chordBtn" title="여러 음을 한 자리에 쌓기">화음 모드</button>
+      <button class="btn" id="nextBtn" title="다음 화음으로 (스페이스바)" disabled>다음 ▶</button>
+    </div>
+    <button class="btn" id="accBtn" title="검은건반 표기 바꾸기">검은건반 ♯</button>
+    <div class="seg" id="labelSeg">
+      <button class="btn on" data-label="solfa">도레미</button>
+      <button class="btn" data-label="letter">CDE</button>
+      <button class="btn" data-label="off">숨김</button>
+    </div>
+    <button class="btn" id="soundBtn" title="소리 켜기/끄기">🔊</button>
+    <button class="btn" id="undoBtn" title="마지막 음 지우기 (Backspace)">↶</button>
+    <button class="btn reset" id="resetBtn">리셋</button>
+  </header>
+
+  <div id="staffCard">
+    <svg id="staffSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="emptyHint"></div>
+  </div>
+
+  <div id="inputs">
+    <div class="inputCard" id="pianoCard"><svg id="pianoSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="inputCard" id="guitarCard"><svg id="guitarSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ================= 상수 =================
+  const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const SOLFA   = ['도', '레', '미', '파', '솔', '라', '시'];
+  const LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
+  // [음이름 인덱스, 임시표]
+  const SHARP = [[0,''],[0,'#'],[1,''],[1,'#'],[2,''],[3,''],[3,'#'],[4,''],[4,'#'],[5,''],[5,'#'],[6,'']];
+  const FLAT  = [[0,''],[1,'b'],[1,''],[2,'b'],[2,''],[3,''],[4,'b'],[4,''],[5,'b'],[5,''],[6,'b'],[6,'']];
+
+  const STAFF_W = 1872, STAFF_H = 540;
+  const NOTE_X0 = 170;                // 첫 음표 시작 x
+  const PIANO_LO = 60, PIANO_HI = 84; // C4 ~ C6
+  const GUITAR_OPEN = [64, 59, 55, 50, 45, 40]; // 1번줄(E4) ~ 6번줄(E2)
+  const FRETS = 12;
+
+  // 높은음자리표 오선 + TAB  (d: C4=28, 맨아랫줄 E4=30, 맨윗줄 F5=38)
+  const L = { h: 12, T: 100, tabTop: 318, tabGap: 22, labelTop: 440 };
+  const STAFF_D_MIN = 23, STAFF_D_MAX = 46; // 오선 직접 입력 범위 (E3 ~ G6)
+
+  const COLOR_INK = '#1b1b1f', COLOR_NEW = '#1f6feb', COLOR_STAFF = '#3a3a44', PAPER = '#fffdf6';
+
+  // ================= 상태 =================
+  // note: {midi, src:'piano'|'guitar'|'staff', str, fret, l, a}
+  //  - staff 음은 사용자가 고른 음이름(l)과 임시표(a)를 그대로 쓴다
+  const state = { cols: [], open: false, chord: false, flat: false, label: 'solfa', sound: true, staffAcc: '' };
+
+  // ================= 음 이름 =================
+  function spellMidi(midi) {
+    const pc = ((midi % 12) + 12) % 12, oct = Math.floor(midi / 12) - 1;
+    const [l, a] = (state.flat ? FLAT : SHARP)[pc];
+    return { l, a, d: oct * 7 + l };
+  }
+  // 기타 음은 관례대로 실제 소리보다 한 옥타브 높게 적는다
+  function spellNote(n) {
+    if (n.src === 'staff') return { l: n.l, a: n.a, d: n.d };
+    return spellMidi(n.src === 'guitar' ? n.midi + 12 : n.midi);
+  }
+  const accChar = a => a === '#' ? '♯' : a === 'b' ? '♭' : '';
+  function nameOf(sp) {
+    return (state.label === 'letter' ? LETTERS : SOLFA)[sp.l] + accChar(sp.a);
+  }
+  const noteName = n => nameOf(spellNote(n));
+  const midiName = m => nameOf(spellMidi(m));
+
+  // ================= 소리 =================
+  let ctx = null;
+  function audio() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  const freq = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  function playPiano(m) {
+    const ac = audio(), t = ac.currentTime, f = freq(m);
+    const out = ac.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.3, t + 0.008);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+    out.connect(ac.destination);
+    [[1, 1], [2, 0.42], [3, 0.18], [4, 0.08]].forEach(([k, amp]) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = f * k;
+      g.gain.setValueAtTime(amp, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2 / k);
+      o.connect(g).connect(out);
+      o.start(t); o.stop(t + 2.3);
+    });
+  }
+
+  function playGuitar(m) {  // Karplus-Strong 현 소리
+    const ac = audio(), sr = ac.sampleRate, f = freq(m);
+    const len = Math.floor(sr * 2.2), N = Math.max(2, Math.round(sr / f));
+    const buf = ac.createBuffer(1, len, sr), y = buf.getChannelData(0);
+    for (let i = 0; i < N; i++) y[i] = Math.random() * 2 - 1;
+    for (let i = N; i < len; i++) y[i] = 0.4985 * (y[i - N] + y[i - N - 1 >= 0 ? i - N - 1 : 0]);
+    const src = ac.createBufferSource(), g = ac.createGain();
+    src.buffer = buf; g.gain.value = 0.35;
+    src.connect(g).connect(ac.destination);
+    src.start();
+  }
+  function play(note) {
+    if (!state.sound) return;
+    try { (note.src === 'guitar' ? playGuitar : playPiano)(note.midi); } catch (e) {}
+  }
+
+  // ================= 입력 처리 =================
+  const sameSlot = (a, b) => {
+    if (a.src !== b.src) return false;
+    if (a.src === 'guitar') return a.str === b.str;
+    if (a.src === 'staff') return a.d === b.d;
+    return a.midi === b.midi;
+  };
+
+  function addNote(note) {
+    play(note);
+    if (state.chord && state.open && state.cols.length) {
+      const col = state.cols[state.cols.length - 1];
+      // 같은 기타 줄 / 같은 건반 / 같은 오선 자리를 다시 누르면 바꾸거나 빼기
+      const i = col.findIndex(n => sameSlot(n, note));
+      if (i >= 0) {
+        const same = col[i].midi === note.midi;
+        col.splice(i, 1);
+        if (!same) col.push(note);
+      } else col.push(note);
+      if (!col.length) { state.cols.pop(); state.open = false; }
+    } else {
+      state.cols.push([note]);
+      state.open = state.chord;
+    }
+    renderAll(true);
+  }
+
+  function undo() {
+    if (!state.cols.length) return;
+    const col = state.cols[state.cols.length - 1];
+    col.pop();
+    if (!col.length) { state.cols.pop(); state.open = false; }
+    renderAll(true);
+  }
+  function reset() {
+    state.cols = []; state.open = false;
+    renderAll(true);
+  }
+  function nextChord() {
+    state.open = false;
+    renderAll(false);
+  }
+
+  // ================= 그리기 도우미 =================
+  const r1 = v => Math.round(v * 10) / 10;
+  const line = (x1, y1, x2, y2, w, c) =>
+    `<line x1="${r1(x1)}" y1="${r1(y1)}" x2="${r1(x2)}" y2="${r1(y2)}" stroke="${c}" stroke-width="${w}"/>`;
+
+  function wholeNote(x, y, h, c) {
+    // 가운데 구멍은 투명하게(evenodd) 뚫어서 덧줄이 보이게 한다
+    const rx = 1.55 * h, ry = 0.98 * h, a = 0.8 * h, b = 0.52 * h, phi = -48;
+    const ux = Math.cos(phi * Math.PI / 180) * a, uy = Math.sin(phi * Math.PI / 180) * a;
+    return `<path fill-rule="evenodd" fill="${c}" d="M${r1(x - rx)} ${r1(y)} a${r1(rx)} ${r1(ry)} 0 1 0 ${r1(2 * rx)} 0 a${r1(rx)} ${r1(ry)} 0 1 0 ${r1(-2 * rx)} 0 Z ` +
+      `M${r1(x - ux)} ${r1(y - uy)} A${r1(a)} ${r1(b)} ${phi} 1 0 ${r1(x + ux)} ${r1(y + uy)} A${r1(a)} ${r1(b)} ${phi} 1 0 ${r1(x - ux)} ${r1(y - uy)} Z"/>`;
+  }
+
+  function sharpGlyph(x, y, h, c) {
+    const vx = 0.42 * h, vt = 2.7 * h, bw = 0.95 * h, bt = 0.42 * h, sl = 0.38 * h, bo = 0.85 * h;
+    const vw = Math.max(1.6, 0.17 * h);
+    let s = line(x - vx, y - vt + sl, x - vx, y + vt + sl * 0.3, vw, c);
+    s += line(x + vx, y - vt - sl * 0.3, x + vx, y + vt - sl, vw, c);
+    [-bo, bo].forEach(o => {
+      const yy = y + o;
+      s += `<polygon points="${r1(x - bw)},${r1(yy + sl - bt / 2)} ${r1(x + bw)},${r1(yy - sl - bt / 2)} ${r1(x + bw)},${r1(yy - sl + bt / 2)} ${r1(x - bw)},${r1(yy + sl + bt / 2)}" fill="${c}"/>`;
+    });
+    return s;
+  }
+  function flatGlyph(x, y, h, c) {
+    const lx = x - 0.55 * h;
+    let s = line(lx, y - 3.6 * h, lx, y + 1.05 * h, Math.max(1.6, 0.18 * h), c);
+    s += `<path d="M${r1(lx)} ${r1(y + 1.0 * h)} C ${r1(lx + 1.9 * h)} ${r1(y - 0.2 * h)}, ${r1(lx + 1.7 * h)} ${r1(y - 1.9 * h)}, ${r1(lx)} ${r1(y - 0.45 * h)}" fill="none" stroke="${c}" stroke-width="${r1(0.42 * h)}" stroke-linecap="round"/>`;
+    return s;
+  }
+
+  // 한 열(단음 또는 화음) 그리기
+  // items: [{d, a, c}] / yOf: d → y / bot, top: 맨아랫줄·맨윗줄의 d
+  function drawColumn(items, x, h, yOf, bot, top) {
+    if (!items.length) return '';
+    let s = '';
+    // 같은 자리 중복(피아노 미 + 기타 1번줄 개방 등)은 한 번만 그린다
+    const seen = new Set();
+    const notes = items.slice().sort((p, q) => p.d - q.d)
+      .filter(n => { const k = n.d + n.a; if (seen.has(k)) return false; seen.add(k); return true; });
+    const nw = 3.1 * h;
+    // 2도 음정이면 위 음을 오른쪽으로 비켜 그리기
+    notes.forEach((n, i) => {
+      n.off = i > 0 && notes[i - 1].d >= n.d - 1 && !notes[i - 1].off;
+    });
+    const anyOff = notes.some(n => n.off);
+    const lx1 = x - 2.3 * h, lx2 = x + 2.3 * h + (anyOff ? nw : 0);
+    const minD = notes[0].d, maxD = notes[notes.length - 1].d;
+    const lw = Math.max(1.6, 0.2 * h);
+    const lc = notes[0].ledger || COLOR_STAFF;
+    for (let Ld = bot - 2; Ld >= minD; Ld -= 2) s += line(lx1, yOf(Ld), lx2, yOf(Ld), lw, lc);
+    for (let Ld = top + 2; Ld <= maxD; Ld += 2) s += line(lx1, yOf(Ld), lx2, yOf(Ld), lw, lc);
+
+    // 임시표: 위에서부터 겹치지 않게 칸 배치
+    const accCols = [];
+    notes.slice().reverse().filter(n => n.a).forEach(n => {
+      let k = 0;
+      while ((accCols[k] || []).some(d => Math.abs(d - n.d) < 6)) k++;
+      (accCols[k] = accCols[k] || []).push(n.d);
+      const ax = x - 3.1 * h - k * 2.3 * h;
+      s += n.a === '#' ? sharpGlyph(ax, yOf(n.d), h, n.c) : flatGlyph(ax, yOf(n.d), h, n.c);
+    });
+    notes.forEach(n => { s += wholeNote(x + (n.off ? nw : 0), yOf(n.d), h, n.c); });
+    return s;
+  }
+
+  function trebleClef(x, yTop, h) {    // yTop = 맨윗줄 y
+    return `<text x="${x}" y="${r1(yTop + 10.5 * h)}" font-size="${r1(11.3 * h)}" font-family="'Noto Music', 'Segoe UI Symbol', serif" fill="${COLOR_INK}">&#x1D11E;</text>`;
+  }
+
+  function labelsAt(x, names, top, bottom, spacing, c) {
+    if (state.label === 'off' || !names.length) return '';
+    const n = names.length;
+    const lh = Math.min(36, (bottom - top) / n);
+    let fs = Math.min(n === 1 ? 32 : 24, lh * 0.92);
+    fs = Math.min(fs, spacing * (n === 1 ? 0.62 : 0.55) + 6);
+    let s = '';
+    names.forEach((t, i) => {
+      s += `<text x="${r1(x)}" y="${r1(top + lh * (i + 0.75))}" text-anchor="middle" font-size="${r1(fs)}" font-weight="700" fill="${c}" font-family="'Noto Sans KR', sans-serif">${t}</text>`;
+    });
+    return s;
+  }
+
+  // ================= 오선 렌더링 =================
+  const staffSvg = document.getElementById('staffSvg');
+  const staffCard = document.getElementById('staffCard');
+  const hint = document.getElementById('emptyHint');
+  const yOf = d => L.T + (38 - d) * L.h;
+  let layout = { spacing: 150, width: STAFF_W };
+
+  function layoutCols(n) {
+    const avail = STAFF_W - NOTE_X0 - 60;
+    const spacing = n ? Math.max(72, Math.min(150, avail / n)) : 150;
+    const width = Math.max(STAFF_W, NOTE_X0 + spacing * (n + 1) + 20);
+    return { spacing, width };
+  }
+  const colX = i => NOTE_X0 + layout.spacing * (i + 0.5);
+
+  function renderStaff(scrollEnd) {
+    const n = state.cols.length;
+    layout = layoutCols(n);
+    const { width, spacing } = layout;
+    const { h, T, tabTop, tabGap } = L;
+    let out = '';
+
+    // 클릭 받는 배경
+    out += `<rect x="0" y="0" width="${width}" height="${tabTop - 8}" fill="${PAPER}"/>`;
+    // 오선
+    for (let i = 0; i < 5; i++) out += line(24, T + i * 2 * h, width - 16, T + i * 2 * h, 1.7, COLOR_STAFF);
+    out += line(24, T, 24, T + 8 * h, 3, COLOR_STAFF);
+    out += trebleClef(40, T, h);
+    // TAB 6줄 (위 1번줄 ~ 아래 6번줄)
+    for (let i = 0; i < 6; i++) out += line(24, tabTop + i * tabGap, width - 16, tabTop + i * tabGap, 1.4, COLOR_STAFF);
+    out += line(24, tabTop, 24, tabTop + 5 * tabGap, 3, COLOR_STAFF);
+    ['T', 'A', 'B'].forEach((ch, i) => {
+      out += `<text x="70" y="${tabTop + 24 + i * 34}" text-anchor="middle" font-size="31" font-weight="900" fill="${COLOR_INK}" font-family="Arial, sans-serif">${ch}</text>`;
+    });
+
+    state.cols.forEach((col, i) => {
+      const x = colX(i), c = i === n - 1 ? COLOR_NEW : COLOR_INK;
+      const items = col.map(nt => { const sp = spellNote(nt); return { d: sp.d, a: sp.a, c }; });
+      out += drawColumn(items, x, h, yOf, 30, 38);
+      col.filter(nt => nt.src === 'guitar').forEach(nt => {
+        const y = tabTop + (nt.str - 1) * tabGap;
+        const t = String(nt.fret), w = t.length > 1 ? 30 : 20;
+        out += `<rect x="${r1(x - w / 2)}" y="${r1(y - 11)}" width="${w}" height="22" fill="${PAPER}"/>`;
+        out += `<text x="${r1(x)}" y="${r1(y + 8)}" text-anchor="middle" font-size="23" font-weight="700" fill="${c}" font-family="Arial, sans-serif">${t}</text>`;
+      });
+      const names = [...new Set(col.map(spellNote).sort((a, b) => b.d - a.d).map(nameOf))];
+      out += labelsAt(x, names, L.labelTop, STAFF_H - 6, spacing, c);
+    });
+    out += `<g id="ghost" pointer-events="none"></g>`;
+
+    staffSvg.setAttribute('width', width);
+    staffSvg.setAttribute('viewBox', `0 0 ${width} ${STAFF_H}`);
+    staffSvg.innerHTML = out;
+    hint.textContent = n ? '' : '오선을 직접 누르거나, 아래 건반·기타 지판을 눌러 보세요';
+    if (scrollEnd) staffCard.scrollLeft = staffCard.scrollWidth;
+  }
+
+  // ---------- 오선 직접 입력 ----------
+  function staffPoint(e) {
+    const pt = staffSvg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    return pt.matrixTransform(staffSvg.getScreenCTM().inverse());
+  }
+  function staffTarget(e) {
+    const p = staffPoint(e);
+    if (p.y > L.tabTop - 8 || p.x < 120) return null;
+    const d = Math.round(38 - (p.y - L.T) / L.h);
+    if (d < STAFF_D_MIN || d > STAFF_D_MAX) return null;
+    return d;
+  }
+  // 새 음이 들어갈 자리 x (화음 모드에서 열려 있으면 마지막 열)
+  const nextX = () => (state.chord && state.open && state.cols.length)
+    ? colX(state.cols.length - 1) : colX(state.cols.length);
+
+  staffSvg.addEventListener('pointermove', e => {
+    const g = staffSvg.querySelector('#ghost');
+    if (!g) return;
+    const d = staffTarget(e);
+    if (d == null) { g.innerHTML = ''; return; }
+    const ghostC = 'rgba(31,111,235,.4)';
+    g.innerHTML = drawColumn([{ d, a: state.staffAcc, c: ghostC, ledger: ghostC }], nextX(), L.h, yOf, 30, 38);
+  });
+  staffSvg.addEventListener('pointerleave', () => {
+    const g = staffSvg.querySelector('#ghost');
+    if (g) g.innerHTML = '';
+  });
+  staffSvg.addEventListener('pointerdown', e => {
+    const d = staffTarget(e);
+    if (d == null) return;
+    e.preventDefault();
+    const l = ((d % 7) + 7) % 7, oct = Math.floor(d / 7);
+    const a = state.staffAcc;
+    const midi = (oct + 1) * 12 + LETTER_PC[l] + (a === '#' ? 1 : a === 'b' ? -1 : 0);
+    addNote({ midi, src: 'staff', d, l, a });
+  });
+
+  // ================= 피아노 건반 =================
+  const pianoSvg = document.getElementById('pianoSvg');
+  const isBlack = m => [1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12);
+  const keyEls = new Map();
+
+  function buildPiano() {
+    const W = 604, H = 340;
+    pianoSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const pos = {};
+    let wi = 0;
+    for (let m = PIANO_LO; m <= PIANO_HI; m++) if (!isBlack(m)) pos[m] = wi++;
+    const ww = W / wi, bw = ww * 0.62, bh = H * 0.6;
+    let white = '', black = '';
+    for (let m = PIANO_LO; m <= PIANO_HI; m++) {
+      if (!isBlack(m)) {
+        const x = pos[m] * ww;
+        white += `<g class="key white" data-m="${m}"><rect x="${r1(x)}" y="0" width="${r1(ww)}" height="${H}" rx="5"/>` +
+          `<text class="klabel" data-m="${m}" x="${r1(x + ww / 2)}" y="${H - 34}" text-anchor="middle" font-size="21" font-weight="700" fill="#555" font-family="'Noto Sans KR', sans-serif" pointer-events="none"></text>` +
+          (m % 12 === 0 ? `<text x="${r1(x + ww / 2)}" y="${H - 10}" text-anchor="middle" font-size="16" font-weight="700" fill="#c0392b" font-family="Arial, sans-serif" pointer-events="none">C${m / 12 - 1}</text>` : '') +
+          `</g>`;
+      } else {
+        const x = (pos[m - 1] + 1) * ww - bw / 2;
+        black += `<g class="key black" data-m="${m}"><rect x="${r1(x)}" y="0" width="${r1(bw)}" height="${r1(bh)}" rx="4"/></g>`;
+      }
+    }
+    pianoSvg.innerHTML = white + black;
+    pianoSvg.querySelectorAll('.key').forEach(g => {
+      const m = +g.dataset.m;
+      keyEls.set(m, g);
+      g.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        g.classList.add('press');
+        setTimeout(() => g.classList.remove('press'), 160);
+        addNote({ midi: m, src: 'piano' });
+      });
+    });
+  }
+
+  function renderPiano(lastCol) {
+    // 오선으로 입력한 음도 같은 높이의 건반에 표시
+    const lit = new Set(lastCol.filter(n => n.src !== 'guitar').map(n => n.midi));
+    keyEls.forEach((g, m) => g.classList.toggle('lit', lit.has(m)));
+    pianoSvg.querySelectorAll('.klabel').forEach(t => {
+      const m = +t.dataset.m;
+      t.textContent = state.label === 'off' ? '' : midiName(m);
+      t.setAttribute('fill', lit.has(m) ? '#c0392b' : '#555');
+    });
+  }
+
+  // ================= 기타 지판 =================
+  const guitarSvg = document.getElementById('guitarSvg');
+  const GW = 1176, GH = 340;
+  const G_OPEN_X1 = 62, G_NUT = 136, G_END = GW - 8;
+  const G_FW = (G_END - G_NUT) / FRETS;
+  const G_Y0 = 30, G_SG = 51;
+  const stringY = st => G_Y0 + (st - 1) * G_SG;
+  const fretCx = f => f === 0 ? (G_OPEN_X1 + G_NUT) / 2 - 4 : G_NUT + (f - 0.5) * G_FW;
+
+  function buildGuitar() {
+    guitarSvg.setAttribute('viewBox', `0 0 ${GW} ${GH}`);
+    let s = '';
+    const yTop = stringY(1), yBot = stringY(6);
+    // 지판
+    s += `<rect x="${G_NUT}" y="${yTop - 18}" width="${G_END - G_NUT}" height="${yBot - yTop + 36}" fill="#5b3a24" rx="4"/>`;
+    // 자리표 점
+    const dot = (f, y) => `<circle cx="${r1(fretCx(f))}" cy="${y}" r="10" fill="#e9dcc2" opacity=".85"/>`;
+    [3, 5, 7, 9].forEach(f => { s += dot(f, (stringY(3) + stringY(4)) / 2); });
+    s += dot(12, (stringY(2) + stringY(3)) / 2) + dot(12, (stringY(4) + stringY(5)) / 2);
+    // 프렛
+    for (let f = 1; f <= FRETS; f++) {
+      const x = G_NUT + f * G_FW;
+      s += line(x, yTop - 18, x, yBot + 18, 4, '#c9c9cf');
+    }
+    s += `<rect x="${G_NUT - 8}" y="${yTop - 20}" width="10" height="${yBot - yTop + 40}" fill="#f2ecdc" rx="2"/>`;
+    // 줄 (위 1번줄 ~ 아래 6번줄)
+    for (let st = 1; st <= 6; st++) {
+      const y = stringY(st);
+      s += line(G_OPEN_X1, y, G_END, y, 1.4 + st * 0.6, st <= 2 ? '#e8e8ee' : '#d8b878');
+      s += `<text x="16" y="${y + 9}" text-anchor="middle" font-size="25" font-weight="900" fill="#f3f5f9" font-family="'Noto Sans KR', sans-serif">${st}</text>`;
+      s += `<text class="openlabel" data-st="${st}" x="42" y="${y + 7}" text-anchor="middle" font-size="17" font-weight="700" fill="#9ba6bf" font-family="'Noto Sans KR', sans-serif"></text>`;
+    }
+    // 프렛 번호
+    s += `<text x="${fretCx(0)}" y="${GH - 6}" text-anchor="middle" font-size="19" font-weight="700" fill="#9ba6bf" font-family="'Noto Sans KR', sans-serif">개방</text>`;
+    for (let f = 1; f <= FRETS; f++) {
+      const hot = [3, 5, 7, 9, 12].includes(f);
+      s += `<text x="${r1(fretCx(f))}" y="${GH - 6}" text-anchor="middle" font-size="${hot ? 24 : 20}" font-weight="${hot ? 900 : 500}" fill="${hot ? '#f3f5f9' : '#9ba6bf'}" font-family="Arial, sans-serif">${f}</text>`;
+    }
+    // 클릭 영역
+    for (let st = 1; st <= 6; st++) {
+      for (let f = 0; f <= FRETS; f++) {
+        const x1 = f === 0 ? G_OPEN_X1 : G_NUT + (f - 1) * G_FW;
+        const x2 = f === 0 ? G_NUT - 8 : G_NUT + f * G_FW;
+        s += `<rect class="cell" data-st="${st}" data-f="${f}" x="${r1(x1)}" y="${stringY(st) - G_SG / 2}" width="${r1(x2 - x1)}" height="${G_SG}"/>`;
+      }
+    }
+    s += `<g id="dots" pointer-events="none"></g>`;
+    guitarSvg.innerHTML = s;
+    guitarSvg.querySelectorAll('.cell').forEach(r => {
+      r.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        const st = +r.dataset.st, f = +r.dataset.f;
+        addNote({ midi: GUITAR_OPEN[st - 1] + f, src: 'guitar', str: st, fret: f });
+      });
+    });
+  }
+
+  function renderGuitar(lastCol) {
+    let d = '';
+    lastCol.filter(n => n.src === 'guitar').forEach(nt => {
+      const x = fretCx(nt.fret), y = stringY(nt.str);
+      const t = state.label === 'off' ? '' : noteName(nt);
+      d += `<circle cx="${r1(x)}" cy="${y}" r="23" fill="#ff6b3d" stroke="#fff" stroke-width="3"/>`;
+      d += `<text x="${r1(x)}" y="${y + 8}" text-anchor="middle" font-size="${t.length > 2 ? 16 : 21}" font-weight="900" fill="#fff" font-family="'Noto Sans KR', sans-serif">${t}</text>`;
+    });
+    guitarSvg.querySelector('#dots').innerHTML = d;
+    guitarSvg.querySelectorAll('.openlabel').forEach(t => {
+      t.textContent = state.label === 'off' ? '' : midiName(GUITAR_OPEN[+t.dataset.st - 1]);
+    });
+  }
+
+  // ================= 화면 갱신 =================
+  const $ = id => document.getElementById(id);
+  function renderControls() {
+    $('chordBtn').classList.toggle('on', state.chord);
+    $('nextBtn').disabled = !(state.chord && state.open);
+    $('accBtn').textContent = state.flat ? '검은건반 ♭' : '검은건반 ♯';
+    $('soundBtn').textContent = state.sound ? '🔊' : '🔇';
+    document.querySelectorAll('#labelSeg .btn').forEach(b => b.classList.toggle('on', b.dataset.label === state.label));
+    document.querySelectorAll('#staffAccSeg .btn').forEach(b => b.classList.toggle('on', b.dataset.acc === state.staffAcc));
+    $('undoBtn').disabled = !state.cols.length;
+  }
+  function renderAll(scrollEnd) {
+    const lastCol = state.cols.length ? state.cols[state.cols.length - 1] : [];
+    renderControls();
+    renderStaff(scrollEnd);
+    renderPiano(lastCol);
+    renderGuitar(lastCol);
+  }
+
+  // ================= 이벤트 =================
+  $('chordBtn').addEventListener('click', () => {
+    state.chord = !state.chord;
+    state.open = false;
+    renderAll(false);
+  });
+  $('nextBtn').addEventListener('click', nextChord);
+  $('accBtn').addEventListener('click', () => { state.flat = !state.flat; renderAll(false); });
+  $('soundBtn').addEventListener('click', () => { state.sound = !state.sound; renderControls(); });
+  document.querySelectorAll('#labelSeg .btn').forEach(b => b.addEventListener('click', () => {
+    state.label = b.dataset.label; renderAll(false);
+  }));
+  document.querySelectorAll('#staffAccSeg .btn').forEach(b => b.addEventListener('click', () => {
+    state.staffAcc = b.dataset.acc; renderControls();
+  }));
+  $('undoBtn').addEventListener('click', undo);
+  $('resetBtn').addEventListener('click', reset);
+  document.querySelectorAll('button').forEach(b => b.addEventListener('mouseup', () => b.blur()));
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z')) { e.preventDefault(); undo(); }
+    else if (e.key === ' ' && state.chord) { e.preventDefault(); nextChord(); }
+  });
+
+  // ================= 16:9 화면 맞춤 =================
+  const stage = $('stage');
+  function fit() {
+    const sc = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    stage.style.transform = `translate(-50%, -50%) scale(${sc})`;
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  buildPiano();
+  buildGuitar();
+  renderAll(true);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => renderStaff(false));
+})();
+</script>
+</body>
+</html>
