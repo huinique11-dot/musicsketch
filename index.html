@@ -112,8 +112,9 @@
     </div>
     <button class="btn" id="accBtn" title="검은건반 표기 바꾸기">검은건반 ♯</button>
     <div class="seg" id="labelSeg">
-      <button class="btn on" data-label="solfa">도레미</button>
-      <button class="btn" data-label="letter">CDE</button>
+      <button class="btn on" data-label="both">한글+영어</button>
+      <button class="btn" data-label="solfa">한글</button>
+      <button class="btn" data-label="letter">영어</button>
       <button class="btn" data-label="off">숨김</button>
     </div>
     <button class="btn" id="soundBtn" title="소리 켜기/끄기">🔊</button>
@@ -149,7 +150,7 @@
   const FRETS = 12;
 
   // 높은음자리표 오선 + TAB  (d: C4=28, 맨아랫줄 E4=30, 맨윗줄 F5=38)
-  const L = { h: 12, T: 100, tabTop: 318, tabGap: 22, labelTop: 440 };
+  const L = { h: 12, T: 100, labelTop: 312 };
   const STAFF_D_MIN = 23, STAFF_D_MAX = 46; // 오선 직접 입력 범위 (E3 ~ G6)
 
   const COLOR_INK = '#1b1b1f', COLOR_NEW = '#1f6feb', COLOR_STAFF = '#3a3a44', PAPER = '#fffdf6';
@@ -157,7 +158,7 @@
   // ================= 상태 =================
   // note: {midi, src:'piano'|'guitar'|'staff', str, fret, l, a}
   //  - staff 음은 사용자가 고른 음이름(l)과 임시표(a)를 그대로 쓴다
-  const state = { cols: [], open: false, chord: false, flat: false, label: 'solfa', sound: true, staffAcc: '' };
+  const state = { cols: [], open: false, chord: false, flat: false, label: 'both', sound: true, staffAcc: '' };
 
   // ================= 음 이름 =================
   function spellMidi(midi) {
@@ -335,12 +336,13 @@
   function labelsAt(x, names, top, bottom, spacing, c) {
     if (state.label === 'off' || !names.length) return '';
     const n = names.length;
-    const lh = Math.min(36, (bottom - top) / n);
-    let fs = Math.min(n === 1 ? 32 : 24, lh * 0.92);
+    const lh = n === 1 ? bottom - top : Math.min(36, (bottom - top) / n);
+    const y0 = top + (bottom - top - lh * n) / 2;
+    let fs = Math.min(n === 1 ? 42 : 26, lh * 0.92);
     fs = Math.min(fs, spacing * (n === 1 ? 0.62 : 0.55) + 6);
     let s = '';
     names.forEach((t, i) => {
-      s += `<text x="${r1(x)}" y="${r1(top + lh * (i + 0.75))}" text-anchor="middle" font-size="${r1(fs)}" font-weight="700" fill="${c}" font-family="'Noto Sans KR', sans-serif">${t}</text>`;
+      s += `<text x="${r1(x)}" y="${r1(y0 + lh * (i + 0.5) + fs * 0.36)}" text-anchor="middle" font-size="${r1(fs)}" font-weight="700" fill="${c}" font-family="'Noto Sans KR', sans-serif">${t}</text>`;
     });
     return s;
   }
@@ -364,34 +366,37 @@
     const n = state.cols.length;
     layout = layoutCols(n);
     const { width, spacing } = layout;
-    const { h, T, tabTop, tabGap } = L;
+    const { h, T, labelTop } = L;
     let out = '';
 
     // 클릭 받는 배경
-    out += `<rect x="0" y="0" width="${width}" height="${tabTop - 8}" fill="${PAPER}"/>`;
+    out += `<rect x="0" y="0" width="${width}" height="${labelTop - 8}" fill="${PAPER}"/>`;
     // 오선
     for (let i = 0; i < 5; i++) out += line(24, T + i * 2 * h, width - 16, T + i * 2 * h, 1.7, COLOR_STAFF);
     out += line(24, T, 24, T + 8 * h, 3, COLOR_STAFF);
     out += trebleClef(40, T, h);
-    // TAB 6줄 (위 1번줄 ~ 아래 6번줄)
-    for (let i = 0; i < 6; i++) out += line(24, tabTop + i * tabGap, width - 16, tabTop + i * tabGap, 1.4, COLOR_STAFF);
-    out += line(24, tabTop, 24, tabTop + 5 * tabGap, 3, COLOR_STAFF);
-    ['T', 'A', 'B'].forEach((ch, i) => {
-      out += `<text x="70" y="${tabTop + 24 + i * 34}" text-anchor="middle" font-size="31" font-weight="900" fill="${COLOR_INK}" font-family="Arial, sans-serif">${ch}</text>`;
+
+    // 음이름 줄: 한글 / 영어
+    const rows = [];
+    if (state.label === 'both' || state.label === 'solfa') rows.push({ title: '한글', names: SOLFA });
+    if (state.label === 'both' || state.label === 'letter') rows.push({ title: '영어', names: LETTERS });
+    const bandH = (STAFF_H - 6 - labelTop) / Math.max(1, rows.length);
+    rows.forEach((row, r) => {
+      row.top = labelTop + r * bandH;
+      row.bottom = row.top + bandH;
+      if (r > 0) out += `<line x1="24" y1="${r1(row.top)}" x2="${width - 16}" y2="${r1(row.top)}" stroke="#d9d4c4" stroke-width="1.5" stroke-dasharray="6 6"/>`;
+      out += `<text x="80" y="${r1(row.top + bandH / 2 + 9)}" text-anchor="middle" font-size="24" font-weight="700" fill="#8a8578" font-family="'Noto Sans KR', sans-serif">${row.title}</text>`;
     });
 
     state.cols.forEach((col, i) => {
       const x = colX(i), c = i === n - 1 ? COLOR_NEW : COLOR_INK;
       const items = col.map(nt => { const sp = spellNote(nt); return { d: sp.d, a: sp.a, c }; });
       out += drawColumn(items, x, h, yOf, 30, 38);
-      col.filter(nt => nt.src === 'guitar').forEach(nt => {
-        const y = tabTop + (nt.str - 1) * tabGap;
-        const t = String(nt.fret), w = t.length > 1 ? 30 : 20;
-        out += `<rect x="${r1(x - w / 2)}" y="${r1(y - 11)}" width="${w}" height="22" fill="${PAPER}"/>`;
-        out += `<text x="${r1(x)}" y="${r1(y + 8)}" text-anchor="middle" font-size="23" font-weight="700" fill="${c}" font-family="Arial, sans-serif">${t}</text>`;
+      const sps = col.map(spellNote).sort((a, b) => b.d - a.d);
+      rows.forEach(row => {
+        const names = [...new Set(sps.map(sp => row.names[sp.l] + accChar(sp.a)))];
+        out += labelsAt(x, names, row.top, row.bottom, spacing, c);
       });
-      const names = [...new Set(col.map(spellNote).sort((a, b) => b.d - a.d).map(nameOf))];
-      out += labelsAt(x, names, L.labelTop, STAFF_H - 6, spacing, c);
     });
     out += `<g id="ghost" pointer-events="none"></g>`;
 
@@ -410,7 +415,7 @@
   }
   function staffTarget(e) {
     const p = staffPoint(e);
-    if (p.y > L.tabTop - 8 || p.x < 120) return null;
+    if (p.y > L.labelTop - 8 || p.x < 120) return null;
     const d = Math.round(38 - (p.y - L.T) / L.h);
     if (d < STAFF_D_MIN || d > STAFF_D_MAX) return null;
     return d;
